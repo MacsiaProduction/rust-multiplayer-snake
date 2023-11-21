@@ -11,7 +11,7 @@ const FOOD_COLOR: Color = [0.90, 0.49, 0.13, 1.0];
 const BORDER_COLOR: Color = [0.741, 0.765, 0.78, 1.0];
 const GAMEOVER_COLOR: Color = [0.91, 0.30, 0.24, 0.5];
 
-const MOVING_PERIOD: f64 = 0.2; // in second
+const MOVING_PERIOD: f64 = 0.1; // in second
 const RESTART_TIME: f64 = 1.0; // in second
 
 pub struct Game {
@@ -28,8 +28,7 @@ pub struct Game {
 
     // Game state
     is_game_over: bool,
-    // When the game is running, it represents the waiting time from the previous moving
-    // When the game is over, it represents the waiting time from the end of the game
+    // Represents time from the previous moving
     waiting_time: f64,
 }
 
@@ -41,8 +40,8 @@ impl Game {
             food_exist: true,
             food_x: 5,
             food_y: 3,
-            width: width,
-            height: height,
+            width,
+            height,
             is_game_over: false,
         }
     }

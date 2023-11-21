@@ -4,5 +4,6 @@ version = "0.1.0"
 authors = ["SLMT <sam123456777@gmail.com>"]
 
 [dependencies]
-piston_window = "0.123.0"
+piston_window = "0.131.0"
 rand = "0.8"
+serde = { version = "1.0.193", features = ["derive"] }

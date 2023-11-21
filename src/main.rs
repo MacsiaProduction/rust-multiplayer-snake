@@ -4,6 +4,7 @@ extern crate rand;
 mod snake;
 mod game;
 mod drawing;
+mod comunication;
 
 use piston_window::*;
 use piston_window::types::Color;
@@ -25,6 +26,8 @@ fn main() {
 
     // Create a window
     let mut window: PistonWindow = window_settings.build().unwrap();
+
+    // todo
 
     // Create a snake game
     let mut game = Game::new(width, height);

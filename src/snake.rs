@@ -1,16 +1,17 @@
-
+extern crate serde;
 use std::collections::LinkedList;
 
 use piston_window::Context;
 use piston_window::G2d;
 use piston_window::types::Color;
+use self::serde::{Deserialize, Serialize};
+use comunication::Direction;
 
 use drawing::draw_block;
 
 const SNAKE_COLOR: Color = [0.18, 0.80, 0.44, 1.0];
 
-#[derive(Clone, Copy, PartialEq)]
-#[derive(Debug)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
 pub enum Direction {
     Up, Down, Left, Right
 }
