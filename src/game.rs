@@ -1,11 +1,13 @@
 use piston_window::types::Color;
 use piston_window::*;
 
-use drawing::{draw_block, draw_rectange};
+use drawing::{draw_block, draw_rectangle};
 use rand::{thread_rng, Rng};
 use snake::{Direction, Snake};
 
 const FOOD_COLOR: Color = [0.90, 0.49, 0.13, 1.0];
+
+//todo delete border
 const BORDER_COLOR: Color = [0.741, 0.765, 0.78, 1.0];
 const GAMEOVER_COLOR: Color = [0.91, 0.30, 0.24, 0.5];
 
@@ -76,17 +78,16 @@ impl Game {
         }
 
         // Draw the border
-        draw_rectange(BORDER_COLOR, 0, 0, self.width, 1, con, g);
-        draw_rectange(BORDER_COLOR, 0, self.height - 1, self.width, 1, con, g);
-        draw_rectange(BORDER_COLOR, 0, 0, 1, self.height, con, g);
-        draw_rectange(BORDER_COLOR, self.width - 1, 0, 1, self.height, con, g);
+        draw_rectangle(BORDER_COLOR, 0, 0, self.width, 1, con, g);
+        draw_rectangle(BORDER_COLOR, 0, self.height - 1, self.width, 1, con, g);
+        draw_rectangle(BORDER_COLOR, 0, 0, 1, self.height, con, g);
+        draw_rectangle(BORDER_COLOR, self.width - 1, 0, 1, self.height, con, g);
 
         // Draw a game-over rectangle
         if self.is_game_over {
-            draw_rectange(GAMEOVER_COLOR, 0, 0, self.width, self.height, con, g);
+            draw_rectangle(GAMEOVER_COLOR, 0, 0, self.width, self.height, con, g);
         }
     }
-
     pub fn update(&mut self, delta_time: f64) {
         self.waiting_time += delta_time;
 
@@ -117,6 +118,11 @@ impl Game {
         }
     }
 
+    fn check_if_the_snake_touches_wall(&self, dir: Option<Direction>) -> bool {
+        let (x, y) = self.snake.next_head_position(dir);
+        x == 0 || y == 0 || x == self.width - 1 || y == self.height - 1
+    }
+
     fn check_if_the_snake_alive(&self, dir: Option<Direction>) -> bool {
         let (next_x, next_y) = self.snake.next_head_position(dir);
 
@@ -124,7 +130,6 @@ impl Game {
         if self.snake.is_overlap_except_tail(next_x, next_y) {
             return false;
         }
-
         // Check if the snake overlaps with the border
         next_x > 0 && next_y > 0 && next_x < self.width - 1 && next_y < self.height - 1
     }
@@ -147,7 +152,9 @@ impl Game {
     }
 
     fn update_snake(&mut self, dir: Option<Direction>) {
-        if self.check_if_the_snake_alive(dir) {
+        if self.check_if_the_snake_touches_wall(dir) {
+            self.snake.go_through_wall(dir, self.width, self.height);
+        } else if self.check_if_the_snake_alive(dir) {
             self.snake.move_forward(dir);
             self.check_eating();
         } else {

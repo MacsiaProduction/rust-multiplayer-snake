@@ -18,10 +18,10 @@ fn main() {
 
     // Prepare window settings
     let mut window_settings = WindowSettings::new("Rust Snake",
-    [to_gui_coord_u32(width), to_gui_coord_u32(height)]).exit_on_esc(true);
+                                                  [to_gui_coord_u32(width), to_gui_coord_u32(height)]).exit_on_esc(true);
 
     // Fix vsync extension error for linux
-    window_settings.set_vsync(true); 
+    window_settings.set_vsync(true);
 
     // Create a window
     let mut window: PistonWindow = window_settings.build().unwrap();
