@@ -56,7 +56,7 @@ impl Snake {
 
         Snake {
             moving_direction: Direction::Right,
-            body: body,
+            body,
             last_removed_block: None
         }
     }
@@ -101,7 +101,6 @@ impl Snake {
         self.last_removed_block = Some(removed_blk);
 
     }
-
 
     pub fn move_forward(&mut self, dir: Option<Direction>) {
         // Change moving direction

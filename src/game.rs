@@ -54,9 +54,16 @@ impl Game {
 
         let dir = match key {
             Key::Up => Some(Direction::Up),
+            Key::W => Some(Direction::Up),
+
             Key::Down => Some(Direction::Down),
+            Key::S => Some(Direction::Down),
+
             Key::Left => Some(Direction::Left),
+            Key::A => Some(Direction::Left),
+
             Key::Right => Some(Direction::Right),
+            Key::D => Some(Direction::Right),
             // Ignore other keys
             _ => return,
         };
