@@ -26,7 +26,7 @@ fn main() {
     // Create a window
     let mut window: PistonWindow = window_settings.build().unwrap();
 
-    // Create a snake
+    // Create a snake game
     let mut game = Game::new(width, height);
 
     // Event loop
