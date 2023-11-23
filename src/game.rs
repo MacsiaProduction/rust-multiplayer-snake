@@ -1,9 +1,10 @@
 use piston_window::types::Color;
 use piston_window::*;
 
-use drawing::{draw_block, draw_rectangle};
+use crate::drawing::{draw_block, draw_rectangle};
 use rand::{thread_rng, Rng};
-use snake::{Direction, Snake};
+use crate::connection::GameConfig;
+use crate::snake::{Direction, Snake};
 
 const FOOD_COLOR: Color = [0.90, 0.49, 0.13, 1.0];
 
@@ -15,16 +16,13 @@ const MOVING_PERIOD: f64 = 0.1; // in second
 const RESTART_TIME: f64 = 1.0; // in second
 
 pub struct Game {
-    snake: Snake,
+    config: GameConfig,
+    pub snake: Snake,
 
     // Food
     food_exist: bool,
-    food_x: i32,
-    food_y: i32,
-
-    // Game Space
-    width: i32,
-    height: i32,
+    food_x: u64,
+    food_y: u64,
 
     // Game state
     is_game_over: bool,
@@ -33,15 +31,14 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(width: i32, height: i32) -> Game {
+    pub fn new(config: GameConfig) -> Game {
         Game {
             snake: Snake::new(2, 2),
             waiting_time: 0.0,
             food_exist: true,
             food_x: 5,
             food_y: 3,
-            width,
-            height,
+            config,
             is_game_over: false,
         }
     }
@@ -84,14 +81,14 @@ impl Game {
         }
 
         // Draw the border
-        draw_rectangle(BORDER_COLOR, 0, 0, self.width, 1, con, g);
-        draw_rectangle(BORDER_COLOR, 0, self.height - 1, self.width, 1, con, g);
-        draw_rectangle(BORDER_COLOR, 0, 0, 1, self.height, con, g);
-        draw_rectangle(BORDER_COLOR, self.width - 1, 0, 1, self.height, con, g);
+        draw_rectangle(BORDER_COLOR, 0, 0, self.config.width, 1, con, g);
+        draw_rectangle(BORDER_COLOR, 0, self.config.height - 1, self.config.width, 1, con, g);
+        draw_rectangle(BORDER_COLOR, 0, 0, 1, self.config.height, con, g);
+        draw_rectangle(BORDER_COLOR, self.config.width - 1, 0, 1, self.config.height, con, g);
 
         // Draw a game-over rectangle
         if self.is_game_over {
-            draw_rectangle(GAMEOVER_COLOR, 0, 0, self.width, self.height, con, g);
+            draw_rectangle(GAMEOVER_COLOR, 0, 0, self.config.width, self.config.height, con, g);
         }
     }
     pub fn update(&mut self, delta_time: f64) {
@@ -117,7 +114,7 @@ impl Game {
     }
 
     fn check_eating(&mut self) {
-        let (head_x, head_y): (i32, i32) = self.snake.head_position();
+        let (head_x, head_y): (u64, u64) = self.snake.head_position();
         if self.food_exist && self.food_x == head_x && self.food_y == head_y {
             self.food_exist = false;
             self.snake.restore_last_removed();
@@ -126,7 +123,7 @@ impl Game {
 
     fn check_if_the_snake_touches_wall(&self, dir: Option<Direction>) -> bool {
         let (x, y) = self.snake.next_head_position(dir);
-        x == 0 || y == 0 || x == self.width - 1 || y == self.height - 1
+        x == 0 || y == 0 || x == self.config.width - 1 || y == self.config.height - 1
     }
 
     fn check_if_the_snake_alive(&self, dir: Option<Direction>) -> bool {
@@ -137,18 +134,18 @@ impl Game {
             return false;
         }
         // Check if the snake overlaps with the border
-        next_x > 0 && next_y > 0 && next_x < self.width - 1 && next_y < self.height - 1
+        next_x > 0 && next_y > 0 && next_x < self.config.width - 1 && next_y < self.config.height - 1
     }
 
     fn add_food(&mut self) {
         let mut rng = thread_rng();
 
         // Decide the position of the new food
-        let mut new_x = rng.gen_range(1..(self.width - 1));
-        let mut new_y = rng.gen_range(1..(self.height - 1));
+        let mut new_x = rng.gen_range(1..(self.config.width - 1));
+        let mut new_y = rng.gen_range(1..(self.config.height - 1));
         while self.snake.is_overlap_except_tail(new_x, new_y) {
-            new_x = rng.gen_range(1..(self.width - 1));
-            new_y = rng.gen_range(1..(self.height - 1));
+            new_x = rng.gen_range(1..(self.config.width - 1));
+            new_y = rng.gen_range(1..(self.config.height - 1));
         }
 
         // Add the new food
@@ -159,7 +156,7 @@ impl Game {
 
     fn update_snake(&mut self, dir: Option<Direction>) {
         if self.check_if_the_snake_touches_wall(dir) {
-            self.snake.go_through_wall(dir, self.width, self.height);
+            self.snake.go_through_wall(dir, self.config.width, self.config.height);
         } else if self.check_if_the_snake_alive(dir) {
             self.snake.move_forward(dir);
             self.check_eating();

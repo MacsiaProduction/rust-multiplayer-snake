@@ -4,33 +4,33 @@ extern crate rand;
 mod snake;
 mod game;
 mod drawing;
-mod comunication;
+mod connection;
 
 use piston_window::*;
 use piston_window::types::Color;
 
 use game::Game;
-use drawing::to_gui_coord_u32;
+use drawing::to_gui_coord_u64;
+use crate::connection::GameConfig;
 
 const BACK_COLOR: Color = [0.204, 0.286, 0.369, 1.0];
 
 fn main() {
-    let (width, height) = (20, 20);
+    let config = GameConfig::default(); // todo get from file
 
     // Prepare window settings
     let mut window_settings = WindowSettings::new("Rust Snake",
-                                                  [to_gui_coord_u32(width), to_gui_coord_u32(height)]).exit_on_esc(true);
+                                                  [to_gui_coord_u64(config.width) as u32, to_gui_coord_u64(config.height)as u32]).exit_on_esc(true);
 
     // Fix vsync extension error for linux
     window_settings.set_vsync(true);
+    window_settings.get_fullscreen();
 
     // Create a window
     let mut window: PistonWindow = window_settings.build().unwrap();
 
-    // todo
-
     // Create a snake game
-    let mut game = Game::new(width, height);
+    let mut game = Game::new(config);
 
     // Event loop
     while let Some(event) = window.next() {
@@ -50,5 +50,6 @@ fn main() {
         event.update(|arg| {
             game.update(arg.dt);
         });
+        println!("{:?}", game.snake);
     }
 }

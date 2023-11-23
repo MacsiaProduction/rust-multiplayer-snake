@@ -5,9 +5,8 @@ use piston_window::Context;
 use piston_window::G2d;
 use piston_window::types::Color;
 use self::serde::{Deserialize, Serialize};
-use comunication::Direction;
 
-use drawing::draw_block;
+use crate::drawing::draw_block;
 
 const SNAKE_COLOR: Color = [0.18, 0.80, 0.44, 1.0];
 
@@ -29,10 +28,11 @@ impl Direction {
 
 #[derive(Debug, Clone)]
 struct Block {
-    x: i32,
-    y: i32
+    x: u64,
+    y: u64,
 }
 
+#[derive(Debug)]
 pub struct Snake {
     moving_direction: Direction,
     body: LinkedList<Block>,
@@ -40,7 +40,7 @@ pub struct Snake {
 }
 
 impl Snake {
-    pub fn new(init_x: i32, init_y: i32) -> Snake {
+    pub fn new(init_x: u64, init_y: u64) -> Snake {
         let mut body: LinkedList<Block> = LinkedList::new();
         body.push_back(Block {
             x: init_x + 2,
@@ -68,9 +68,9 @@ impl Snake {
         }
     }
 
-    pub fn go_through_wall(&mut self, dir: Option<Direction>, width: i32, height: i32) {
+    pub fn go_through_wall(&mut self, dir: Option<Direction>, width: u64, height: u64) {
         // Retrieve the position of the head block
-        let (last_x, last_y): (i32, i32) = self.head_position();
+        let (last_x, last_y): (u64, u64) = self.head_position();
 
         match dir {
             Some(d) => self.moving_direction = d,
@@ -111,7 +111,7 @@ impl Snake {
         }
 
         // Retrieve the position of the head block
-        let (last_x, last_y): (i32, i32) = self.head_position();
+        let (last_x, last_y): (u64, u64) = self.head_position();
 
         // The snake moves
         let new_block = match self.moving_direction {
@@ -137,7 +137,7 @@ impl Snake {
         self.last_removed_block = Some(removed_blk);
     }
 
-    pub fn head_position(&self) -> (i32, i32) {
+    pub fn head_position(&self) -> (u64, u64) {
         let head_block = self.body.front().unwrap();
         (head_block.x, head_block.y)
     }
@@ -146,9 +146,9 @@ impl Snake {
         self.moving_direction
     }
 
-    pub fn next_head_position(&self, dir: Option<Direction>) -> (i32, i32) {
+    pub fn next_head_position(&self, dir: Option<Direction>) -> (u64, u64) {
         // Retrieve the position of the head block
-        let (head_x, head_y): (i32, i32) = self.head_position();
+        let (head_x, head_y): (u64, u64) = self.head_position();
 
         // Get moving direction
         let mut moving_dir = self.moving_direction;
@@ -171,7 +171,7 @@ impl Snake {
         self.body.push_back(blk);
     }
 
-    pub fn is_overlap_except_tail(&self, x: i32, y: i32) -> bool {
+    pub fn is_overlap_except_tail(&self, x: u64, y: u64) -> bool {
         let mut checked = 0;
         for block in &self.body {
             if x == block.x && y == block.y {
