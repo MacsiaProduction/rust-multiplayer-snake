@@ -94,14 +94,6 @@ impl Game {
     pub fn update(&mut self, delta_time: f64) {
         self.waiting_time += delta_time;
 
-        // If the game is over
-        if self.is_game_over {
-            if self.waiting_time > RESTART_TIME {
-                self.restart();
-            }
-            return;
-        }
-
         // Check if the food still exists
         if !self.food_exist {
             self.add_food();
@@ -164,14 +156,5 @@ impl Game {
             self.is_game_over = true;
         }
         self.waiting_time = 0.0;
-    }
-
-    fn restart(&mut self) {
-        self.snake = Snake::new(2, 2);
-        self.waiting_time = 0.0;
-        self.food_exist = true;
-        self.food_x = 5;
-        self.food_y = 3;
-        self.is_game_over = false;
     }
 }

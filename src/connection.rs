@@ -1,11 +1,8 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
 extern crate serde;
 use crate::snake::Direction;
 use self::serde::{Deserialize, Serialize};
 extern crate tokio;
-use std::{io, thread};
-use tokio::net::{UdpSocket};
-use tokio::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename = "NodeRole")]

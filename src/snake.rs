@@ -85,14 +85,14 @@ impl Snake {
             },
             Direction::Down => Block {
                 x: last_x,
-                y: 0
+                y: 1
             },
             Direction::Left => Block {
                 x: width - 2,
                 y: last_y
             },
             Direction::Right => Block {
-                x: 0,
+                x: 1,
                 y: last_y
             }
         };
