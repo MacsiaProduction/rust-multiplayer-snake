@@ -1,13 +1,10 @@
 extern crate serde;
 
-use lazy_static::lazy_static;
-
 use piston_window::Context;
 use piston_window::G2d;
 use piston_window::types::Color;
 use crate::connection::Coord;
 use self::serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::drawing::draw_block;
 
@@ -31,10 +28,10 @@ impl Direction {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct Snake {
-    player_id: u64,
-    points: Vec<Coord>,
+    pub(super) player_id: u64,
+    pub(super) points: Vec<Coord>,
     #[serde(default = "default_snake_state")]
-    state: SnakeState,
+    pub(super) state: SnakeState,
     head_direction: Direction,
     #[serde(skip)]
     last_removed: Option<Coord>,
@@ -46,35 +43,13 @@ fn default_snake_state() -> SnakeState {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "UPPERCASE")]
-enum SnakeState {
+pub(super) enum SnakeState {
     ALIVE = 0,
     ZOMBIE = 1,
 }
 
-#[derive(Debug, Clone)]
-struct IdGenerator {
-    next_id: u64,
-}
-
-impl IdGenerator {
-    fn new() -> Self {
-        IdGenerator { next_id: 0 }
-    }
-
-    fn generate_id(&mut self) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
-    }
-}
-
-lazy_static! {
-    static ref counter: AtomicU64 = AtomicU64::new(0);
-}
-
 impl Snake {
-    pub fn new(init_x: u64, init_y: u64) -> Snake {
-        let id = counter.fetch_add(1, Ordering::SeqCst);
+    pub fn new(init_x: u64, init_y: u64, id: u64) -> Snake {
         let mut body: Vec<Coord> = Vec::new();
         body.push(Coord::new(init_x + 2, init_y));
         body.push(Coord::new(init_x + 1, init_y));
@@ -89,8 +64,8 @@ impl Snake {
     }
 
     pub fn draw(&self, con: &Context, g: &mut G2d) {
-        for Coord in &self.points {
-            draw_block(SNAKE_COLOR, Coord.x, Coord.y, con, g);
+        for coord in &self.points {
+            draw_block(SNAKE_COLOR, coord.x, coord.y, con, g);
         }
     }
 
@@ -198,8 +173,8 @@ impl Snake {
 
     pub fn is_overlap_except_tail(&self, x: u64, y: u64) -> bool {
         let mut checked = 0;
-        for Coord in &self.points {
-            if x == Coord.x && y == Coord.y {
+        for coord in &self.points {
+            if x == coord.x && y == coord.y {
                 return true;
             }
 

@@ -1,43 +1,9 @@
 extern crate serde;
 extern crate tokio;
 
-use crate::snake::{Direction, Snake};
+use crate::game_state::{GamePlayers, GameState};
+use crate::snake::{Direction};
 use self::serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename = "NodeRole")]
-enum NodeRole {
-    NORMAL = 0,
-    MASTER = 1,
-    DEPUTY = 2,
-    VIEWER = 3,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "UPPERCASE")]
-enum PlayerType {
-    HUMAN = 0,
-    ROBOT = 1,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct GamePlayer {
-    name: String,
-    id: u64,
-    #[serde(default)]
-    ip_address: Option<String>,
-    #[serde(default)]
-    port: Option<u64>,
-    role: NodeRole,
-    #[serde(default = "default_player_type")]
-    #[serde(rename = "type")]
-    player_type: PlayerType,
-    score: u64,
-}
-
-fn default_player_type() -> PlayerType {
-    PlayerType::HUMAN
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GameConfig {
@@ -78,17 +44,22 @@ fn default_state_delay_ms() -> u64 {
     1000
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct GamePlayers {
-    players: Vec<GamePlayer>,
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub(super) struct Coord {
+    pub(crate) x: u64,
+    pub(crate) y: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub(super) struct Coord {
-    #[serde(default)]
-    pub(crate) x: u64,
-    #[serde(default)]
-    pub(crate) y: u64,
+impl PartialEq<(u64, u64)> for Coord {
+    fn eq(&self, other: &(u64, u64)) -> bool {
+        self.x == other.0 && self.y == other.1
+    }
+}
+
+impl PartialEq<Coord> for (u64, u64) {
+    fn eq(&self, other: &Coord) -> bool {
+        self.0 == other.x && self.1 == other.y
+    }
 }
 
 impl Coord {
@@ -100,12 +71,20 @@ impl Coord {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename = "NodeRole")]
+pub(super) enum NodeRole {
+    NORMAL = 0,
+    MASTER = 1,
+    DEPUTY = 2,
+    VIEWER = 3,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub(super) struct GameState {
-    state_order: u64,
-    snakes: Vec<Snake>,
-    foods: Vec<Coord>,
-    players: GamePlayers,
+#[serde(rename_all = "UPPERCASE")]
+pub(super) enum PlayerType {
+    HUMAN = 0,
+    ROBOT = 1,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
