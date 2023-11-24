@@ -1,8 +1,8 @@
-
 extern crate serde;
-use crate::snake::Direction;
-use self::serde::{Deserialize, Serialize};
 extern crate tokio;
+
+use crate::snake::{Direction, Snake};
+use self::serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename = "NodeRole")]
@@ -84,35 +84,24 @@ struct GamePlayers {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct Coord {
+pub(super) struct Coord {
     #[serde(default)]
-    x: u64,
+    pub(crate) x: u64,
     #[serde(default)]
-    y: u64,
+    pub(crate) y: u64,
+}
+
+impl Coord {
+    pub(crate) fn new(x:u64, y:u64) -> Self {
+        Coord {
+            x,
+            y,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "UPPERCASE")]
-enum SnakeState {
-    ALIVE = 0,
-    ZOMBIE = 1,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Snake {
-    player_id: u64,
-    points: Vec<Coord>,
-    #[serde(default = "default_snake_state")]
-    state: SnakeState,
-    head_direction: Direction,
-}
-
-fn default_snake_state() -> SnakeState {
-    SnakeState::ALIVE
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct GameState {
+pub(super) struct GameState {
     state_order: u64,
     snakes: Vec<Snake>,
     foods: Vec<Coord>,
@@ -156,69 +145,11 @@ enum GameMessageType {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GameMessage {
-    msg_seq: i64,
+    msg_seq: u64,
     #[serde(default)]
     sender_id: Option<u64>,
     #[serde(default)]
     receiver_id: Option<u64>,
     #[serde(flatten)]
     msg_type: GameMessageType,
-}
-
-// fn master() {
-//     // Obtain user input for game configuration
-//     let config = get_game_config();
-//
-//     // Create a UDP socket for multicast messages
-//     let multicast_socket: UdpSocket = create_multicast_socket().expect("Failed to create multicast socket");
-//
-//     // Create a UDP socket for regular communication
-//     let port: u8 = 0; // todo input
-//     let communication_socket: UdpSocket = create_communication_socket(port).expect("Failed to create communication socket");
-//
-//     // Start the game as the master node
-//     let mut game_state = start_game(config.clone(), communication_socket);
-//
-//     // Start sending AnnouncementMsg with an interval of 1 second
-//     send_announcement_messages(multicast_socket, game_state.clone());
-//
-//     // Create a thread to handle user input
-//     thread::spawn(move || {
-//         // Implement logic to handle user input and send corresponding messages
-//         // For simplicity, we'll use a loop to simulate continuous user input
-//         loop {
-//             // Example: Send SteerMsg message to change the direction of the snake
-//             let steer_msg = GameMessage {
-//                 msg_seq: 1,
-//                 sender_id: Some(1),
-//                 receiver_id: None,
-//                 msg_type: GameMessageType::SteerMsg { direction: Direction::UP },
-//             };
-//             send_game_message(&communication_socket, &steer_msg);
-//
-//             // Sleep for a short duration to simulate user input interval
-//             thread::sleep(Duration::from_millis(100));
-//         }
-//     });
-//
-//     // Create a thread to handle incoming messages
-//     thread::spawn(move || {
-//         // Implement logic to receive and process incoming messages
-//         loop {
-//             // Example: Receive and process incoming messages
-//             receive_and_process_messages(&communication_socket, &mut game_state);
-//
-//             // Sleep for a short duration to control the frequency of message processing
-//             thread::sleep(Duration::from_millis(50));
-//         }
-//     });
-//
-//     // Keep the main thread alive
-//     loop {
-//         thread::sleep(Duration::from_secs(10));
-//     }
-// }
-
-fn get_game_config() -> GameConfig {
-    todo!()
 }

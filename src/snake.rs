@@ -1,10 +1,13 @@
 extern crate serde;
-use std::collections::LinkedList;
+
+use lazy_static::lazy_static;
 
 use piston_window::Context;
 use piston_window::G2d;
 use piston_window::types::Color;
+use crate::connection::Coord;
 use self::serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::drawing::draw_block;
 
@@ -26,132 +29,154 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Block {
-    x: u64,
-    y: u64,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct Snake {
+    player_id: u64,
+    points: Vec<Coord>,
+    #[serde(default = "default_snake_state")]
+    state: SnakeState,
+    head_direction: Direction,
+    #[serde(skip)]
+    last_removed: Option<Coord>,
 }
 
-#[derive(Debug)]
-pub struct Snake {
-    moving_direction: Direction,
-    body: LinkedList<Block>,
-    last_removed_block: Option<Block>
+fn default_snake_state() -> SnakeState {
+    SnakeState::ALIVE
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+enum SnakeState {
+    ALIVE = 0,
+    ZOMBIE = 1,
+}
+
+#[derive(Debug, Clone)]
+struct IdGenerator {
+    next_id: u64,
+}
+
+impl IdGenerator {
+    fn new() -> Self {
+        IdGenerator { next_id: 0 }
+    }
+
+    fn generate_id(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+}
+
+lazy_static! {
+    static ref counter: AtomicU64 = AtomicU64::new(0);
 }
 
 impl Snake {
     pub fn new(init_x: u64, init_y: u64) -> Snake {
-        let mut body: LinkedList<Block> = LinkedList::new();
-        body.push_back(Block {
-            x: init_x + 2,
-            y: init_y
-        });
-        body.push_back(Block {
-            x: init_x + 1,
-            y: init_y
-        });
-        body.push_back(Block {
-            x: init_x,
-            y: init_y
-        });
+        let id = counter.fetch_add(1, Ordering::SeqCst);
+        let mut body: Vec<Coord> = Vec::new();
+        body.push(Coord::new(init_x + 2, init_y));
+        body.push(Coord::new(init_x + 1, init_y));
 
         Snake {
-            moving_direction: Direction::Right,
-            body,
-            last_removed_block: None
+            player_id: id,
+            head_direction: Direction::Right,
+            points: body,
+            state: default_snake_state(),
+            last_removed: None,
         }
     }
 
     pub fn draw(&self, con: &Context, g: &mut G2d) {
-        for block in &self.body {
-            draw_block(SNAKE_COLOR, block.x, block.y, con, g);
+        for Coord in &self.points {
+            draw_block(SNAKE_COLOR, Coord.x, Coord.y, con, g);
         }
     }
 
     pub fn go_through_wall(&mut self, dir: Option<Direction>, width: u64, height: u64) {
-        // Retrieve the position of the head block
+        // Retrieve the position of the head Coord
         let (last_x, last_y): (u64, u64) = self.head_position();
 
         match dir {
-            Some(d) => self.moving_direction = d,
+            Some(d) => self.head_direction = d,
             None => {}
         }
 
         // The moves
-        let new_block = match self.moving_direction {
-            Direction::Up => Block {
+        let new_block = match self.head_direction {
+            Direction::Up => Coord {
                 x: last_x,
                 y: height - 2
             },
-            Direction::Down => Block {
+            Direction::Down => Coord {
                 x: last_x,
                 y: 1
             },
-            Direction::Left => Block {
+            Direction::Left => Coord {
                 x: width - 2,
                 y: last_y
             },
-            Direction::Right => Block {
+            Direction::Right => Coord {
                 x: 1,
                 y: last_y
             }
         };
 
-        self.body.push_front(new_block);
-        let removed_blk = self.body.pop_back().unwrap();
-        self.last_removed_block = Some(removed_blk);
-
+        self.points.insert(0,new_block);
+        let removed_blk = self.points.pop().unwrap();
+        self.last_removed = Some(removed_blk);
     }
 
     pub fn move_forward(&mut self, dir: Option<Direction>) {
         // Change moving direction
         match dir {
-            Some(d) => self.moving_direction = d,
+            Some(d) => self.head_direction = d,
             None => {}
         }
 
-        // Retrieve the position of the head block
+        // Retrieve the position of the head Coord
         let (last_x, last_y): (u64, u64) = self.head_position();
 
         // The snake moves
-        let new_block = match self.moving_direction {
-            Direction::Up => Block {
+        let new_block = match self.head_direction {
+            Direction::Up => Coord {
                 x: last_x,
                 y: last_y - 1
             },
-            Direction::Down => Block {
+            Direction::Down => Coord {
                 x: last_x,
                 y: last_y + 1
             },
-            Direction::Left => Block {
+            Direction::Left => Coord {
                 x: last_x - 1,
                 y: last_y
             },
-            Direction::Right => Block {
+            Direction::Right => Coord {
                 x: last_x + 1,
                 y: last_y
             }
         };
-        self.body.push_front(new_block);
-        let removed_blk = self.body.pop_back().unwrap();
-        self.last_removed_block = Some(removed_blk);
+        self.points.insert(0,new_block);
+        let removed_blk = self.points.pop().unwrap();
+        self.last_removed = Some(removed_blk);
     }
 
     pub fn head_position(&self) -> (u64, u64) {
-        let head_block = self.body.front().unwrap();
+        let head_block = &self.points[0];
         (head_block.x, head_block.y)
     }
 
     pub fn head_direction(&self) -> Direction {
-        self.moving_direction
+        self.head_direction
     }
 
     pub fn next_head_position(&self, dir: Option<Direction>) -> (u64, u64) {
-        // Retrieve the position of the head block
+        // Retrieve the position of the head Coord
         let (head_x, head_y): (u64, u64) = self.head_position();
 
         // Get moving direction
-        let mut moving_dir = self.moving_direction;
+        let mut moving_dir = self.head_direction;
         match dir {
             Some(d) => moving_dir = d,
             None => {}
@@ -167,20 +192,20 @@ impl Snake {
     }
 
     pub fn restore_last_removed(&mut self) {
-        let blk = self.last_removed_block.clone().unwrap();
-        self.body.push_back(blk);
+        let blk = self.last_removed.clone().unwrap();
+        self.points.push(blk);
     }
 
     pub fn is_overlap_except_tail(&self, x: u64, y: u64) -> bool {
         let mut checked = 0;
-        for block in &self.body {
-            if x == block.x && y == block.y {
+        for Coord in &self.points {
+            if x == Coord.x && y == Coord.y {
                 return true;
             }
 
             // For excluding the tail
             checked += 1;
-            if checked == self.body.len() - 1 {
+            if checked == self.points.len() - 1 {
                 break;
             }
         }

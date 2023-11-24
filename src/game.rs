@@ -17,7 +17,7 @@ const RESTART_TIME: f64 = 1.0; // in second
 
 pub struct Game {
     config: GameConfig,
-    pub snake: Snake,
+    pub(super) snake: Snake,
 
     // Food
     food_exist: bool,
