@@ -3,12 +3,38 @@ extern crate serde;
 use piston_window::Context;
 use piston_window::G2d;
 use piston_window::types::Color;
-use crate::connection::Coord;
 use self::serde::{Deserialize, Serialize};
 
 use crate::drawing::draw_block;
 
 const SNAKE_COLOR: Color = [0.18, 0.80, 0.44, 1.0];
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub(super) struct Coord {
+    pub(crate) x: u64,
+    pub(crate) y: u64,
+}
+
+impl PartialEq<(u64, u64)> for Coord {
+    fn eq(&self, other: &(u64, u64)) -> bool {
+        self.x == other.0 && self.y == other.1
+    }
+}
+
+impl PartialEq<Coord> for (u64, u64) {
+    fn eq(&self, other: &Coord) -> bool {
+        self.0 == other.x && self.1 == other.y
+    }
+}
+
+impl Coord {
+    pub(crate) fn new(x:u64, y:u64) -> Self {
+        Coord {
+            x,
+            y,
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
 pub enum Direction {

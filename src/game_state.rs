@@ -6,9 +6,10 @@ use piston_window::*;
 
 use crate::drawing::{draw_block, draw_rectangle};
 use rand::{thread_rng, Rng};
-use crate::connection::{Coord, GameConfig, NodeRole, PlayerType};
+use crate::{GameAnnouncement, GameConfig, NodeRole};
+use crate::NodeRole::MASTER;
 use self::serde::{Deserialize, Serialize};
-use crate::snake::{Direction, Snake, SnakeState};
+use crate::snake::{Coord, Direction, Snake, SnakeState};
 
 const FOOD_COLOR: Color = [0.90, 0.49, 0.13, 1.0];
 const BORDER_COLOR: Color = [0.741, 0.765, 0.78, 1.0];
@@ -18,33 +19,41 @@ const MOVING_PERIOD: f64 = 0.1; // in second
 const RESTART_TIME: f64 = 1.0; // in second
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+pub(super) enum PlayerType {
+    HUMAN = 0,
+    ROBOT = 1,
+}
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct GamePlayers {
-    players: Vec<GamePlayer>,
+    pub(crate) players: Vec<GamePlayer>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct GamePlayer {
-    name: String,
-    id: u64,
+pub(super) struct GamePlayer {
+    pub(super) name: String,
+    pub(super) id: u64,
     #[serde(default)]
-    ip_address: Option<String>,
+    pub(super) ip_address: Option<String>,
     #[serde(default)]
-    port: Option<u64>,
-    role: NodeRole,
+    pub(super) port: Option<u16>,
+    pub(crate) role: NodeRole,
     #[serde(default = "default_player_type")]
     #[serde(rename = "type")]
-    player_type: PlayerType,
-    score: u64,
+    pub(crate) player_type: PlayerType,
+    pub(crate) score: u64,
 }
 
 impl GamePlayer {
-    pub(crate) fn new(name: String, id: u64, role: NodeRole) -> Self {
+    pub(crate) fn new_with_ip(name: String, id: u64, role: NodeRole, ipv4addr: String, port: u16) -> Self {
         GamePlayer {
             name,
             id,
             role,
-            ip_address: None,
-            port: None,
+            ip_address: Some(ipv4addr),
+            port: Some(port),
             player_type: PlayerType::HUMAN,
             score: 0,
         }
@@ -60,20 +69,31 @@ pub(super) struct GameState {
     state_order: u64,
     snakes: Vec<Snake>,
     foods: Vec<Coord>,
-    players: GamePlayers,
+    pub(super) players: GamePlayers,
     #[serde(skip)]
-    config: GameConfig,
+    pub(crate) config: GameConfig,
 }
 
 impl GameState {
-    pub fn new(config: GameConfig, name: String) -> GameState {
+
+    pub fn get_announcement(&self) -> GameAnnouncement {
+        let owner = self.players.players.iter().find(|p| p.role == MASTER).unwrap();
+        GameAnnouncement {
+            players: self.players.clone(),
+            config: self.config.clone(),
+            can_join: true,
+            game_name: owner.name.to_string()+"Game",
+        }
+    }
+
+    pub fn new(config: GameConfig, name: String, ip: String, port: u16) -> GameState {
         let host_id = 1;
         GameState {
             state_order: 0,
             snakes: vec!(Snake::new(2, 2, host_id)),
             foods: vec![],
             players: GamePlayers {
-                players: vec!(GamePlayer::new(name, host_id, NodeRole::MASTER))
+                players: vec!(GamePlayer::new_with_ip(name, host_id, MASTER, ip, port))
             },
             config
         }
@@ -159,7 +179,7 @@ impl GameState {
         }
     }
 
-    fn update_snake(&mut self, users_dirs: &HashMap<u64, Direction>) {
+    pub fn update_snake(&mut self, users_dirs: HashMap<u64, Direction>) {
         // todo eat before collide
         for i in 0..self.snakes.len() {
             if let Some(dir) = users_dirs.get(&self.snakes[i].player_id) {
@@ -197,12 +217,12 @@ impl GameState {
             self.snakes.retain(|s| s.player_id != player_id);
         }
     }
-    
+
     fn get_snake(&self, id: u64) -> &Snake {
         self.snakes.iter().find(|s| s.player_id == id).unwrap()
     }
     fn get_snake_mut(&mut self, id: u64) -> &mut Snake{
         self.snakes.iter_mut().find(|s| s.player_id == id).unwrap()
     }
-    
+
 }
