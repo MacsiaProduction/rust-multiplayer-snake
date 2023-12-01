@@ -9,14 +9,10 @@ use rand::{thread_rng, Rng};
 use crate::{GameAnnouncement, GameConfig, NodeRole};
 use crate::NodeRole::MASTER;
 use self::serde::{Deserialize, Serialize};
-use crate::snake::{Coord, Direction, Snake, SnakeState};
+use crate::snakes::{Coord, Direction, Snake};
 
 const FOOD_COLOR: Color = [0.90, 0.49, 0.13, 1.0];
 const BORDER_COLOR: Color = [0.741, 0.765, 0.78, 1.0];
-const GAMEOVER_COLOR: Color = [0.91, 0.30, 0.24, 0.5];
-
-const MOVING_PERIOD: f64 = 0.1; // in second
-const RESTART_TIME: f64 = 1.0; // in second
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "UPPERCASE")]
@@ -24,7 +20,6 @@ pub(super) enum PlayerType {
     HUMAN = 0,
     ROBOT = 1,
 }
-
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct GamePlayers {
@@ -66,12 +61,24 @@ fn default_player_type() -> PlayerType {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct GameState {
-    state_order: u64,
-    snakes: Vec<Snake>,
+    pub(super) state_order: u64,
+    pub(super) snakes: Vec<Snake>,
     foods: Vec<Coord>,
     pub(super) players: GamePlayers,
     #[serde(skip)]
     pub(crate) config: GameConfig,
+}
+
+impl Default for GameState {
+    fn default() -> Self {
+        GameState {
+            state_order: 0,
+            snakes: vec![],
+            foods: vec![],
+            players: GamePlayers { players: vec![] },
+            config: Default::default(),
+        }
+    }
 }
 
 impl GameState {
@@ -107,7 +114,7 @@ impl GameState {
 
         if self.snakes.iter()
             .find(|s| {s.player_id == sender_id})
-            .is_some_and(|s| {s.head_direction().opposite() == direction}) {
+            .is_some_and(|s| {s.head_direction.opposite() == direction}) {
             return false;
         }
         return true;
@@ -142,6 +149,9 @@ impl GameState {
                 snake.restore_last_removed();
                 self.foods.remove(food_index);
             }
+        }
+        while self.foods.len() as u64 != self.config.food_static {
+            self.add_food();
         }
     }
 
@@ -181,6 +191,7 @@ impl GameState {
 
     pub fn update_snake(&mut self, users_dirs: HashMap<u64, Direction>) {
         // todo eat before collide
+        self.state_order+=1;
         for i in 0..self.snakes.len() {
             if let Some(dir) = users_dirs.get(&self.snakes[i].player_id) {
                 self.move_snake(self.snakes[i].player_id, Some(*dir));
@@ -207,13 +218,6 @@ impl GameState {
     fn kill_player(&mut self, player_id: u64) {
         if let Some(player) = self.players.players.iter_mut().find(|p| p.id == player_id) {
             player.role = NodeRole::VIEWER;
-            self.snakes.retain(|s| s.player_id != player_id);
-        }
-    }
-
-    fn zombify_player(&mut self, player_id: u64) {
-        if let Some(snake) = self.snakes.iter_mut().find(|s| s.player_id == player_id) {
-            snake.state = SnakeState::ZOMBIE;
             self.snakes.retain(|s| s.player_id != player_id);
         }
     }

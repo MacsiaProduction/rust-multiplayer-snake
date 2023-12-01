@@ -55,10 +55,11 @@ impl Direction {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct Snake {
     pub(super) player_id: u64,
+    //todo смещение а не список точек
     pub(super) points: Vec<Coord>,
     #[serde(default = "default_snake_state")]
     pub(super) state: SnakeState,
-    head_direction: Direction,
+    pub(crate) head_direction: Direction,
     #[serde(skip)]
     last_removed: Option<Coord>,
 }
@@ -166,10 +167,6 @@ impl Snake {
     pub fn head_position(&self) -> (u64, u64) {
         let head_block = &self.points[0];
         (head_block.x, head_block.y)
-    }
-
-    pub fn head_direction(&self) -> Direction {
-        self.head_direction
     }
 
     pub fn next_head_position(&self, dir: Option<Direction>) -> (u64, u64) {

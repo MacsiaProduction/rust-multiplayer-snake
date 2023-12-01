@@ -5,27 +5,25 @@ extern crate tokio;
 
 mod drawing;
 mod game_state;
-mod snake;
+mod snakes;
+mod dto;
 
-use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr};
 use tokio::sync::Mutex;
-use std::sync::{Arc};
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use piston_window::*;
 use piston_window::types::Color;
 use tokio::net::UdpSocket;
-use crate::connection::init_controller;
+use crate::connection::{init_master, init_slave};
 use self::serde::{Deserialize, Serialize};
 
 use crate::drawing::*;
-use crate::game_state::{GamePlayer, GamePlayers, GameState, PlayerType};
-use crate::GameMessageType::AnnouncementMsg;
-use crate::NodeRole::MASTER;
-use crate::snake::Direction;
+use crate::game_state::{GamePlayers, GameState, PlayerType};
+use crate::snakes::Direction;
 
 const BACK_COLOR: Color = [0.204, 0.286, 0.369, 1.0];
 
+//todo protobuf generation of classes
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GameConfig {
     #[serde(default = "default_width")]
@@ -36,6 +34,10 @@ pub struct GameConfig {
     pub food_static: u64,
     #[serde(default = "default_state_delay_ms")]
     pub state_delay_ms: u64,
+}
+
+impl From<dto::GameConfig> {
+
 }
 
 impl Default for GameConfig {
@@ -62,7 +64,7 @@ fn default_food_static() -> u64 {
 }
 
 fn default_state_delay_ms() -> u64 {
-    500
+    1000
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,26 +83,6 @@ struct GameAnnouncement {
     #[serde(default = "default_can_join")]
     can_join: bool,
     game_name: String,
-}
-
-impl GameAnnouncement {
-    fn new(config: GameConfig, name: String, id: u64, node_role: NodeRole) -> Self {
-        GameAnnouncement {
-            players: GamePlayers { players: vec!(GamePlayer::new(name.clone(), id, node_role))},
-            config,
-            can_join: true,
-            game_name: format!("{}'s Game", name),
-        }
-    }
-
-    fn new_with_ip(config: GameConfig, name: String, id: u64, node_role: NodeRole, ipv4addr: String, port: u16) -> Self {
-        GameAnnouncement {
-            players: GamePlayers { players: vec!(GamePlayer::new_with_ip(name.clone(), id, node_role, ipv4addr, port))},
-            config,
-            can_join: true,
-            game_name: format!("{}'s Game", name),
-        }
-    }
 }
 
 fn default_can_join() -> bool {
@@ -144,39 +126,84 @@ struct GameMessage {
 #[tokio::main]
 async fn main() {
     let name: String = "Macsia".to_string(); //todo get
-    let config = GameConfig::default(); //todo get
 
-    let local_addr1 = SocketAddr::new("127.0.0.1".parse().unwrap(), 9192);
-    let multicast_socket: UdpSocket = UdpSocket::bind(local_addr1).await.expect("failed to create multicast socket");
-    multicast_socket.join_multicast_v4(Ipv4Addr::new(239, 192, 0,4),Ipv4Addr::UNSPECIFIED).expect("failed to connect multicast group");
-    multicast_socket.connect(SocketAddr::new("239.192.0.4".parse().unwrap(), 9192)).await.expect("failed to connect multicast group");
+    let multicast_socket: UdpSocket = UdpSocket::bind("0.0.0.0:0").await
+        .expect("failed to create multicast socket");
+    multicast_socket.join_multicast_v4(Ipv4Addr::new(239, 192, 0,4),Ipv4Addr::UNSPECIFIED)
+        .expect("failed to join multicast group");
+    multicast_socket.connect(SocketAddr::new("239.192.0.4".parse().unwrap(), 9192)).await
+        .expect("failed to connect to multicast group");
+
+    let communication_socket =  Arc::new(Mutex::new(UdpSocket::bind(SocketAddr::new("127.0.0.1".parse().unwrap(), 0)).await
+        .expect("failed to create communication socket")));
+    let real_addr = communication_socket.lock().await.local_addr().unwrap().clone();
 
     //todo start screen with choice connect or create
-    let local_addr2 = SocketAddr::new("127.0.0.1".parse().unwrap(), 0);
-    let communication_socket =  Arc::new(Mutex::new(UdpSocket::bind(local_addr2).await.expect("failed to create communication socket")));
-    let real_addr = communication_socket.lock().await.local_addr().unwrap().clone();
-    let _selected: GameAnnouncement =
-        GameAnnouncement::new_with_ip(
+    let create: bool = true;
+
+    if create {
+        let config = GameConfig::default(); //todo get
+
+        communication_socket.lock().await.connect(real_addr).await.expect("failed to connect to master"); // loopback
+
+        let window = init_window(&config);
+
+        let game_state = Arc::new(Mutex::new(GameState::new(
             config.clone(),
             name.clone(),
-            1,
-            MASTER,
             real_addr.ip().to_string(),
             real_addr.port()
-        );
+        )));
 
-    communication_socket.lock().await.connect(real_addr).await.expect("failed to connect to master"); // loopback for master
+        init_master(window, communication_socket, game_state, multicast_socket).await;
+    } else {
+        let mut buffer = vec![0; 2048];
+        let (bytes, sender_addr) = multicast_socket.recv_from(&mut buffer).await.expect("failed to receive GameAnnouncement");
+        let game_message : GameMessage = serde_json::from_slice(&buffer[..bytes]).expect("failed to deserialize GameMessage");
+        let selected: GameAnnouncement;
+        match game_message.msg_type {
+            GameMessageType::AnnouncementMsg {games} => {
+                selected = games.get(0).expect("No games found in AnnouncementMsg").clone();
+            }
+            _ => panic!("received not AnnouncementMsg from multicast socket")
+        }
 
-    let window = init_window(&config);
+        //connect to master
+        communication_socket.lock().await.connect(sender_addr).await.expect("failed to connect to master");
 
-    let game_state = Arc::new(Mutex::new(GameState::new(
-        config.clone(),
-        name.clone(),
-        real_addr.ip().to_string(),
-        real_addr.port()
-    )));
+        let join_msg: GameMessage = GameMessage {
+            msg_seq: 0,
+            sender_id: None,
+            receiver_id: None,
+            msg_type: GameMessageType::JoinMsg {
+                player_type: PlayerType::HUMAN,
+                player_name: name,
+                game_name: selected.game_name,
+                requested_role: NodeRole::NORMAL,
+            }
+        };
 
-    init_controller(window, communication_socket, game_state, multicast_socket).await;
+        //sending joining message to master
+        let json_message = serde_json::to_string(&join_msg).expect("failed to serialize the GameMessage");
+        communication_socket.lock().await.send(json_message.as_bytes()).await.expect("failed to send game message");
+
+        //receiveing Acknowledge message from master
+        let bytes = communication_socket.lock().await.recv(&mut buffer).await.expect("failed to receive AckMsg for joining");
+        let game_message : GameMessage = serde_json::from_slice(&buffer[..bytes]).expect("failed to deserialize GameMessage");
+
+        let my_id:u64;
+        let master_id:u64;
+        match game_message.msg_type {
+            GameMessageType::AckMsg => {
+                my_id = game_message.receiver_id.expect("received AckMsg don't have sender_id");
+                master_id = game_message.sender_id.expect("received AckMsg don't have master_id");
+            }
+            _ => panic!("received not AckMsg when joining to master")
+        }
+        let window = init_window(&selected.config);
+
+        init_slave(window, communication_socket, multicast_socket, master_id, my_id).await;
+    }
 }
 
 fn init_window(config: &GameConfig) -> PistonWindow {
@@ -189,11 +216,12 @@ fn init_window(config: &GameConfig) -> PistonWindow {
     window_settings.build().unwrap()
 }
 
-mod connection {
+pub(crate) mod connection {
     extern crate piston_window;
     extern crate rand;
     extern crate serde;
     extern crate tokio;
+
     use std::collections::{HashMap, HashSet};
     use std::net::SocketAddr;
     use tokio::sync::Mutex;
@@ -206,23 +234,143 @@ mod connection {
     use tokio::net::UdpSocket;
     use tokio::time::interval;
 
-    use crate::{BACK_COLOR, GameMessage, GameMessageType};
-    use crate::game_state::{GamePlayer, GamePlayers, GameState};
-    use crate::snake::Direction;
+    use crate::{BACK_COLOR, GameMessage, GameMessageType, NodeRole};
+    use crate::connection::send::{send_ack_message, send_game_message, send_game_message_to_master, send_to_all};
+    use crate::game_state::{GamePlayer, GameState};
+    use crate::snakes::Direction;
 
     //todo change when join the game
-    static SENDER_ID: AtomicU64 = AtomicU64::new(0);
+    static MY_ID: AtomicU64 = AtomicU64::new(0);
+    static MASTER_ID: AtomicU64 = AtomicU64::new(0);
     static COUNTER: AtomicU64 = AtomicU64::new(1);
 
-    pub(super) async fn init_controller(window: PistonWindow, socket: Arc<Mutex<UdpSocket>>, game_state: Arc<Mutex<GameState>>, multicast_socket: UdpSocket) {
-        let awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>> = Arc::new(Mutex::new(HashMap::new()));
-        awaiting_packages.lock().await.insert(SENDER_ID.load(Relaxed), HashSet::new());
-        communication_controller(
+    mod send {
+        use std::collections::{HashMap, HashSet};
+        use std::sync::Arc;
+        use std::sync::atomic::Ordering;
+        use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+        use std::time::Duration;
+        use tokio::net::UdpSocket;
+        use tokio::sync::Mutex;
+        use tokio::time::sleep;
+        use crate::{GameMessage, GameMessageType};
+        use crate::connection::{COUNTER, MASTER_ID, MY_ID};
+        use crate::game_state::GamePlayers;
+
+        pub(crate) async fn send_game_message_to_master(socket: Arc<Mutex<UdpSocket>>, sender_id:u64, receiver: Option<u64>, game_message_type: GameMessageType, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
+            let message: GameMessage = GameMessage {
+                msg_seq: COUNTER.fetch_and(1, Ordering::AcqRel), // todo idk what's this
+                sender_id: Some(sender_id),
+                receiver_id: receiver,
+                msg_type: game_message_type,
+            };
+            // Serialize the GameMessage to a JSON string
+            let json_message = serde_json::to_string(&message).expect("failed to serialize the GameMessage");
+
+            // Send the JSON string through the UDP socket
+            tokio::spawn(async move {
+                let delay = Duration::from_micros(10); //todo 0.1 * state_delay_ms //todo really 0.1 * state_delay_ms
+                for _ in 0..8 {
+                    socket.lock().await.send(json_message.as_bytes()).await.expect("failed to send game message");
+                    sleep(delay).await;
+                    if awaiting_packages.lock().await.get_mut(&sender_id).expect("awaiting_packages for player not initialized").remove(&message.msg_seq) {
+                        break;
+                    }
+                }
+            });
+        }
+
+        pub(super) async fn send_to_all(socket: Arc<Mutex<UdpSocket>>, game_message_type: GameMessageType, game_players: GamePlayers, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
+            for player in game_players.players {
+                send_game_message(
+                    socket.clone(),
+                    game_message_type.clone(),
+                    MY_ID.load(Relaxed),
+                    Some(player.id),
+                    player.ip_address.expect(format!("missing ip_addr field from {} player", player.name.clone()).as_str()),
+                    player.port.expect(format!("missing port field from {} player", player.name.clone()).as_str()),
+                    awaiting_packages.clone()
+                ).await;
+            }
+        }
+
+        pub(super) async fn send_game_message(socket: Arc<Mutex<UdpSocket>>, game_message_type: GameMessageType, sender_id :u64, receiver_id: Option<u64>, ip: String, port: u16, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
+            let message: GameMessage = GameMessage {
+                msg_seq: COUNTER.fetch_add(1, Relaxed),
+                sender_id: Some(sender_id),
+                receiver_id,
+                msg_type: game_message_type,
+            };
+            // Serialize the GameMessage to a JSON string
+            let json_message = serde_json::to_string(&message).expect("failed to serialize the GameMessage");
+
+            // Send the JSON string through the UDP socket
+            tokio::spawn(async move {
+                let delay = Duration::from_micros(10); //todo 0.1 * state_delay_ms
+                for _ in 0..8 {
+                    socket.lock().await.send_to(json_message.as_bytes(), format!("{ip}:{port}")).await.expect("error sending game message");
+                    sleep(delay).await;
+                    if awaiting_packages.lock().await.get_mut(&sender_id).expect("awaiting_packages for player not initialized").remove(&message.msg_seq) {
+                        break;
+                    }
+                }
+            });
+        }
+
+        pub(super) async fn send_ack_message(socket: Arc<Mutex<UdpSocket>>, msg_seq: u64) {
+            let message: GameMessage = GameMessage {
+                msg_seq,
+                sender_id: Some(MY_ID.load(SeqCst)),
+                receiver_id: Some(MASTER_ID.load(SeqCst)),
+                msg_type: GameMessageType::AckMsg {},
+            };
+            match serde_json::to_string(&message) {
+                Ok(json_message) => if let Err(err) = socket.lock().await.send(json_message.as_bytes()).await {
+                    println!("Failed to send game message: {}", err);
+                },
+                Err(err) => println!("Failed to serialize the GameMessage: {}", err),
+            }
+            println!("3");
+        }
+    }
+
+    pub(super) async fn init_master(window: PistonWindow, socket: Arc<Mutex<UdpSocket>>, game_state: Arc<Mutex<GameState>>, multicast_socket: UdpSocket) {
+        let my_id = game_state.lock().await.players.players.get(0).unwrap().id;
+        MASTER_ID.store(my_id, Ordering::SeqCst);
+        MY_ID.store(my_id, Ordering::SeqCst);
+
+        let awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>> = Arc::new(Mutex::new(HashMap::from([(MY_ID.load(Relaxed), HashSet::new())])));
+
+        master_communication_controller(
             Arc::clone(&game_state),
             socket.clone(),
             multicast_socket,
             awaiting_packages.clone()
-        ); //similar for master and not
+        );
+
+        event_loop(
+            window,
+            socket.clone(),
+            game_state.clone(),
+            awaiting_packages.clone()
+        ).await;
+    }
+
+    pub(super) async fn init_slave(window: PistonWindow, socket: Arc<Mutex<UdpSocket>>, multicast_socket: UdpSocket, master_id:u64, slave_id:u64) {
+        MASTER_ID.store(master_id, Ordering::SeqCst);
+        MY_ID.store(slave_id, Ordering::SeqCst);
+
+        let awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>> = Arc::new(Mutex::new(HashMap::from([(MY_ID.load(Relaxed), HashSet::new())])));
+
+        let game_state = Arc::new(Mutex::default());
+
+        tokio::spawn(slave_communication_controller(
+            Arc::clone(&game_state),
+            socket.clone(),
+            multicast_socket,
+            awaiting_packages.clone()
+        ));
+
         event_loop(
             window,
             socket.clone(),
@@ -270,96 +418,67 @@ mod connection {
 
         send_game_message_to_master(
             communication_socket.clone(),
-            SENDER_ID.load(Relaxed),
-            None,
+            MY_ID.load(Relaxed),
+            Some(MASTER_ID.load(Relaxed)),
             steer_msg,
             awaiting_packages.clone()
         ).await;
     }
 
-    pub(super) async fn send_game_message_to_master(socket: Arc<Mutex<UdpSocket>>, sender_id:u64, receiver: Option<u64>, game_message_type: GameMessageType, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
-        let message: GameMessage = GameMessage {
-            msg_seq: COUNTER.fetch_and(1, Ordering::AcqRel), // todo idk what's this
-            sender_id: Some(sender_id),
-            receiver_id: receiver,
-            msg_type: game_message_type,
-        };
-        // Serialize the GameMessage to a JSON string
-        let json_message = serde_json::to_string(&message).expect("failed to serialize the GameMessage");
-
-        // Send the JSON string through the UDP socket
-        tokio::spawn(async move {
-            let mut interval = interval(Duration::from_micros(10)); //todo really 0.1 * state_delay_ms
-            for _ in 0..8 {
-                socket.lock().await.send(json_message.as_bytes()).await.expect("failed to send game message");
-                interval.tick().await;
-                if awaiting_packages.lock().await.get_mut(&sender_id).expect("awaiting_packages for player not initialized").remove(&message.msg_seq) {
-                    break;
-                }
-            }
-        });
-    }
-
-    async fn send_to_all(socket: Arc<Mutex<UdpSocket>>, game_message_type: GameMessageType, game_players: GamePlayers, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
-        for player in game_players.players {
-            send_game_message(
-                socket.clone(),
-                game_message_type.clone(),
-                SENDER_ID.load(Relaxed),
-                player.ip_address.expect(format!("missing ip_addr field from {} player", player.name.clone()).as_str()),
-                player.port.expect(format!("missing port field from {} player", player.name.clone()).as_str()),
-                awaiting_packages.clone()
-            ).await;
-        }
-    }
-
-    async fn send_game_message(socket: Arc<Mutex<UdpSocket>>, game_message_type: GameMessageType, sender_id :u64, ip: String, port: u16, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
-        let message: GameMessage = GameMessage {
-            msg_seq: COUNTER.fetch_add(1, Relaxed),
-            sender_id: Some(sender_id),
-            receiver_id: None,
-            msg_type: game_message_type,
-        };
-        // Serialize the GameMessage to a JSON string
-        let json_message = serde_json::to_string(&message).expect("failed to serialize the GameMessage");
-
-        // Send the JSON string through the UDP socket
-        tokio::spawn(async move {
-            let mut interval = interval(Duration::from_micros(10)); //todo really 0.1 * state_delay_ms
-            for _ in 0..8 {
-                socket.lock().await.send_to(json_message.as_bytes(), format!("{ip}:{port}")).await.expect("error sending game message");
-                interval.tick().await;
-                if awaiting_packages.lock().await.get_mut(&sender_id).expect("awaiting_packages for player not initialized").remove(&message.msg_seq) {
-                    break;
-                }
-            }
-        });
-    }
-
-    fn communication_controller(game_state: Arc<Mutex<GameState>>, communication_socket: Arc<Mutex<UdpSocket>>, multicast_socket: UdpSocket, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
+    fn master_communication_controller(game_state: Arc<Mutex<GameState>>, communication_socket: Arc<Mutex<UdpSocket>>, multicast_socket: UdpSocket, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
         let moves: Arc<Mutex<HashMap<u64, Direction>>> = Arc::new(Mutex::new(HashMap::new()));
 
-        let _state_handle = tokio::spawn(game_state_translator(
+        let _request_controller_handle = tokio::spawn(request_controller(
+            game_state.clone(),
+            communication_socket.clone(),
+            moves.clone(),
+            awaiting_packages.clone()
+        ));
+        let _game_turn_controller_handle = tokio::spawn(game_turn_controller(
+            game_state.clone(),
+            communication_socket.clone(),
+            moves.clone(),
+            awaiting_packages.clone()
+        ));
+        let _state_translator_handle = tokio::spawn(game_state_translator(
             game_state.clone(),
             communication_socket.clone(),
             awaiting_packages.clone()
         ));
-        let _announce_handle = tokio::spawn(announce_translator(
+        let _announce_translator_handle = tokio::spawn(announce_translator(
             multicast_socket,
             game_state.clone()
         ));
-        let _game_turn_handle = tokio::spawn(game_turn_controller(
+    }
+
+    async fn slave_communication_controller(game_state: Arc<Mutex<GameState>>, communication_socket: Arc<Mutex<UdpSocket>>, multicast_socket: UdpSocket, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
+        let moves: Arc<Mutex<HashMap<u64, Direction>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        let _game_turn_controller_handle = tokio::spawn(game_turn_controller(
             game_state.clone(),
             communication_socket.clone(),
             moves.clone(),
             awaiting_packages.clone()
         ));
-        let _request_handle = tokio::spawn(request_controller(
+
+        let _request_controller_handle = tokio::spawn(request_controller(
             game_state.clone(),
             communication_socket.clone(),
             moves.clone(),
             awaiting_packages.clone()
         ));
+
+        let mut interval = interval(Duration::from_millis(game_state.lock().await.config.state_delay_ms.clone()));
+        loop {
+            if game_state.lock().await.players.players.get(MY_ID.load(Relaxed) as usize).unwrap().role.eq(&NodeRole::MASTER) {
+                _request_controller_handle.abort();
+                _game_turn_controller_handle.abort();
+                master_communication_controller(game_state, communication_socket, multicast_socket, awaiting_packages);
+                return;
+            } else {
+                interval.tick().await;
+            }
+        }
     }
 
     async fn request_controller(game_state: Arc<Mutex<GameState>>, communication_socket: Arc<Mutex<UdpSocket>>, moves:Arc<Mutex<HashMap<u64, Direction>>>, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
@@ -371,7 +490,7 @@ mod connection {
             match communication_socket.lock().await.try_recv_from(&mut buffer) {
                 Ok ((bytes,addr)) => {
                     let game_message :GameMessage = serde_json::from_slice(&buffer[..bytes]).expect("failed to deserialize GameMessage");
-                    let sender_id = find_player_id_by_ip(game_state.clone(), addr).await;
+                    let sender = find_player_id_by_ip(game_state.clone(), addr).await;
                     match game_message.msg_type {
                         GameMessageType::PingMsg => {
                             // если мы ничего не отправляли в течении GameTurn нужно отправить его
@@ -379,19 +498,23 @@ mod connection {
                         }
                         GameMessageType::SteerMsg {direction} => {
                             //получаем новое направление от игрока
-                            moves.lock().await.insert(sender_id, direction);
+                            moves.lock().await.insert(sender.id, direction);
                         }
                         GameMessageType::AckMsg => {
                             //знаем что можно не пересылать сообщение с game_message.msg_seq
-                            awaiting_packages.lock().await.get_mut(&sender_id).unwrap().insert(game_message.msg_seq.clone());
+                            // assert_eq!(sender.id, game_message.sender_id.expect("protocol asserts GameMessage to have sender_id"), "only allow to receive AckMessages from Master");
+
+                            awaiting_packages.lock().await.get_mut(&sender.id).unwrap().insert(game_message.msg_seq.clone());
                         }
                         GameMessageType::StateMsg {state} => {
                             //cохраняем новое состояние
+                            if game_state.lock().await.state_order >= state.state_order {
+                                continue;
+                            }
                             game_state.lock().await.clone_from(&state);
                         }
                         GameMessageType::AnnouncementMsg { .. } => {
-                            //рисуем идущие игры
-                            todo!("рисуем идущие игры");
+                            //ignored because we will not send discover while playing
                         }
                         GameMessageType::DiscoverMsg => {
                             //отправляем в ответ AnnouncementMsg
@@ -400,7 +523,8 @@ mod connection {
                             send_game_message(
                                 communication_socket.clone(),
                                 GameMessageType::AnnouncementMsg { games: vec![my_game] },
-                                SENDER_ID.load(Relaxed),
+                                MY_ID.load(Relaxed),
+                                None,
                                 addr.ip().to_string(),
                                 addr.port(),
                                 awaiting_packages.clone(),
@@ -408,8 +532,7 @@ mod connection {
                         }
                         GameMessageType::JoinMsg { player_type, player_name, game_name, requested_role } => {
                             //добавляем игрока в игру
-                            //todo check game_name to be equal
-                            assert_eq!(game_state.lock().await.get_announcement().game_name,game_name, "checks the game_name param in JoinMsg");
+                            assert_eq!(game_state.lock().await.get_announcement().game_name, game_name, "checks the game_name param in JoinMsg");
                             let player = GamePlayer {
                                 name: player_name,
                                 id: random(), //todo generate with id generator
@@ -431,6 +554,9 @@ mod connection {
                             todo!("смена роли");
                         }
                     }
+                    println!("1");
+                    send_ack_message(communication_socket.clone(), game_message.msg_seq.clone()).await;
+                    println!("2");
                 }
                 Err(_) => {
                     interval.tick().await;
@@ -439,43 +565,50 @@ mod connection {
         }
     }
 
-    async fn find_player_id_by_ip(game_state: Arc<Mutex<GameState>>, addr: SocketAddr) -> u64 {
+    async fn find_player_id_by_ip(game_state: Arc<Mutex<GameState>>, addr: SocketAddr) -> GamePlayer {
         game_state.lock().await.players.players.clone().iter().find(|p|
-            p.ip_address.clone().unwrap() == addr.ip().to_string() && p.port.unwrap() == addr.port()).expect("No player with such ip:port found").id
+            p.ip_address.clone().unwrap() == addr.ip().to_string() && p.port.unwrap() == addr.port()).expect("No player with such ip:port found").clone()
     }
 
     async fn game_turn_controller(game_state: Arc<Mutex<GameState>>, communication_socket: Arc<Mutex<UdpSocket>>, moves: Arc<Mutex<HashMap<u64, Direction>>>, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
         let delay = Duration::from_millis(game_state.lock().await.config.state_delay_ms.clone());
+        let mut interval = interval(delay);
         loop {
-            {
-                game_state.lock().await.update_snake(moves.clone().lock().await.clone());
-            }
+            let mut moves_copy = moves.lock().await.clone();
+            let mut state_copy = game_state.lock().await.clone();
+            moves_copy.retain(|id, direction| {
+               state_copy.steer_validate(*direction, *id)
+            });
+            state_copy.update_snake(moves_copy);
             let message = GameMessageType::StateMsg {
-                state: game_state.lock().await.clone(),
+                state: state_copy.clone(),
             };
             send_to_all(
                 communication_socket.clone(),
                 message,
-                game_state.lock().await.players.clone(),
+                state_copy.players,
                 awaiting_packages.clone()
             ).await;
-            tokio::time::sleep(delay).await;
+            interval.tick().await;
         }
     }
 
     async fn announce_translator(multicast_socket: UdpSocket, game_state: Arc<Mutex<GameState>>) {
+        let mut interval = interval(Duration::from_secs(1));
         loop {
             let message = GameMessageType::AnnouncementMsg {
                 games: vec![game_state.lock().await.get_announcement()],
             };
             let json_message = serde_json::to_string(&message).expect("failed to serialize the GameMessage");
+            //todo разобраться почему нет сети
             multicast_socket.send(json_message.as_bytes()).await.expect("Failed to send multicast announcement");
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            interval.tick().await;
         }
     }
 
     async fn game_state_translator(game_state: Arc<Mutex<GameState>>, communication_socket: Arc<Mutex<UdpSocket>>, awaiting_packages: Arc<Mutex<HashMap<u64, HashSet<u64>>>>) {
         let delay = Duration::from_millis(game_state.lock().await.config.state_delay_ms.clone());
+        let mut interval = interval(delay);
         loop {
             let game_state = GameMessageType::StateMsg {
                 state: game_state.lock().await.clone(),
@@ -483,12 +616,12 @@ mod connection {
 
             send_game_message_to_master(
                 communication_socket.clone(),
-                SENDER_ID.load(Relaxed),
+                MY_ID.load(Relaxed),
                 None,
                 game_state,
                 awaiting_packages.clone()
             ).await;
-            tokio::time::sleep(delay).await;
+            interval.tick().await;
         }
     }
 }
