@@ -13,3 +13,7 @@ tokio = { version = "1", features = ["full"] }
 bincode = "2.0.0-rc.3"
 lazy_static = { version = "1.4.0", features = [] }
 idgenerator = "2"
+protobuf = "2.25.2"
+config = { version = "0.13.4", features = [] }
+dirs = { version = "5.0.1", features = [] }
+net2 = "0.2.39"
